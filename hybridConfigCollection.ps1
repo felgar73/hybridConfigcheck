@@ -1,7 +1,6 @@
 <# Hybrid Configuration collection script
 .Description
     Gathers data related to Exchange Hybrid mailflow, free/busy sharing & OAuth.
-    Some data is output to text files, but most goes to XML files in order to avoid truncation issues.
 
 .Notes
     Script name: hybridConfigCollection.ps1
