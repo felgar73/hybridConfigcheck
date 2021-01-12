@@ -24,3 +24,7 @@ Requirements:
     **Oct 2020**
     --Added Exch certificate collection function
     --Added 'New-' cmdlet search within HCW logs
+    **Nov 2020**
+    --Modified folder creation 'Test-Path' functions
+    **Dec 2020**
+    --Added MSOL/AAD data collection for OAuth configs
