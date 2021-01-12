@@ -1,18 +1,30 @@
 <# Hybrid Configuration collection script
+**Disclaimer**
+This script is NOT an official Microsoft tool. Therefore use of the tool is covered exclusively by the license associated with this github repository.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 .Description
     Gathers data related to Exchange Hybrid configurations including: mailflow connectors, free/busy sharing & OAuth.
-    
+
 .Notes
     Script name: hybridConfigCollection.ps1
     Created by: Felix E. Garcia - felgar@microsoft.com
 
-    Requirements: 
+    Requirements:
     -Powershell should to be 'Run As Administrator'.
     -Script assumes Kerberos Auth is enabled on-prem.
 
+    General Notes:
     -Supports EXO V2 Powershell module
-    -Details collected for Exchange certificates will be limited due to remote powershell limitations.
-    -If more Exch cert data is needed go ahead and run the 'Get-ExchangeCertificate' cmdlet locally on the server.
+    -Details collected for Exchange certificates will be limited due to remote powershell limitations. If more Exchange cert data is needed go ahead and run the 'Get-ExchangeCertificate' cmdlet locally on the desired server.
+
+    You can run the script on any domain-joined machine via a regular Powershell window (as admin) (not Exchange Mgmt Shell).    
+    The script will first prompt you on whether you wish to collect on-premises Exchange data. Once complete (or if you answer 'no'), it will ask whether you wish to collect Exchange Online data. 
+    Once complete, it will display the location of collection data. Some files will be in '.xml' format and some in text files. In some cases, data is sent to both formats for flexibility.
+
+    When connecting to Exchange Online, the script will attempt to import the EXO V2 powershell module; if this fails it will fallback to the legacy, Basic Auth remote method.
+    When connecting to Azure AD in order to collect OAuth some settings, the script will attempt to import the AzureADPreview powershell module; if this fails it will continue with other operations and this will require manual collection.
 
     ::Updates::
     **Aug 2020**
@@ -23,15 +35,10 @@
     **Oct 2020**
     --Added Exch certificate collection function
     --Added 'New-' cmdlet search within HCW logs
-
-
-
-.Synopsis
-    You can run the script on any domain-joined machine via a regular Powershell window (as admin) (not Exchange Mgmt Shell).    
-    The script will first prompt you on whether you wish to collect on-premises Exchange data. Once complete (or if you answer 'no'), it will ask whether you wish to collect Exchange Online data. 
-    Once complete, it will display the location of collection data. Some files will be in '.xml' format and some in text files. In some cases, data is sent to both formats for flexibility.
-
-    When connecting to Exchange Online, the script will attempt to import the EXO V2 module; if this fails it will fallback to the legacy, Basic Auth remote method.
+    **Nov 2020**
+    --Modified folder creation 'Test-Path' functions
+    **Dec 2020**
+    --Added MSOL/AAD data collection for OAuth configs
 #>
 
 #Check for 'run as admin':
@@ -57,52 +64,65 @@ $sendConntxt = '\Get-Sendconnector.txt'
 $recConnxml = '\Get-ReceiveConnector.xml'
 $recConntxt = '\Get-ReceiveConnector.txt'
 $exchCerttxt = '\ExchangeCertificate.txt'
-$opConfig = '\OnPrem-SharingConfig.txt'
+$opsharConfig = '\OnPrem-SharingConfig.txt'
 $ewsOutxml = '\EWS-XMLOutput.xml'
 $ewsOuttxt = '\EWS-TxtOutput.txt' 
-$oPoauthtxt = '\OnPrem-OAuthConfig.txt'
-$authsvrxml = '\Get-Authsvr.xml'
+$oPoauthtxt = '\OnPrem-OAuthConfigs.txt'
+$authsvrxml = '\Get-AuthServer.xml'
 $OPintraOrgxml = '\OnPrem-IntraOrgConnector.xml'
 $OPintraOrgtxt = '\OnPrem-IntraOrgConnector.txt'
-$hcwSetCmdOPtxt = '\HCW-SetCmdlets-OnPrem.txt'
+$hcwSetCmdOPtxt = '\HCW-Cmds_OnPrem.txt'
 
 #Cloud filename variables:
+$clIntraOrgtxt = '\Cloud-IntraOrgConnector.txt'
 $CLIntraOrgxml = '\Cloud-IntraOrgConnector.xml'
-$cLoauthtxt = '\Cloud-OauthConfigs.txt'
-$cloudConfig = '\Cloud-SharingConfig.txt'
+$cloauthtxt = '\Cloud-OauthConfigs.txt'
+$cloudsharetxt = '\Cloud-SharingConfig.txt'
+$cloudOrgtxt = '\Cloud-OrgConfig.txt'
 $cloudOrgReltxt = '\Cloud-OrgRelationship.txt'
 $cloudOrgRelxml = '\Cloud-OrgRelationship.xml'
-$hcwSetCmdCloudtxt = '\HCW-SetCmdlets-Cloud.txt'
+$hcwSetCmdCloudtxt = '\HCW-Cmds_Cloud.txt'
+$inbConntxt = '\O365-Inbound-Connector.txt'
+$outbConntxt = '\O365-Outbound-Connector.txt'
+$migEndptxt = '\O365-Migration-Endpoints.txt'
+$accptDomtxt = '\O365-Accepted-Domain.txt'
 
 #Collection Folder variables:
-$outputDir = "c:\temp\HybridConfigs"
-$onPremDir = "$outputDir\OnPremCollection"
-$cloudDir = "$outputDir\CloudCollection"
+$outputDir = 'c:\temp\HybridConfigs'
+$onPremDir = $outputDir + '\OnPremCollection'
+$cloudDir = $outputDir + '\CloudCollection'
 
 #OnPrem output paths:
-$hybPath = $onPremDir + $hybConfxml
-$sendConnXmlPath = $onPremDir + $sendConnxml
-$sendConnTxtPath = $onPremDir + $sendConntxt
-$recConnXmlPath = $onPremDir + $recConnxml
-$recConnTxtPath = $onPremDir + $recConntxt
-$exchCertpath = $onPremDir + $exchCerttxt
-$opPath = $onPremDir + $opConfig
-$ewsxmlPath = $onPremDir + $ewsOutxml
-$ewstxtPath = $onPremDir + $ewsOuttxt 
-$OPoauthPath = $onPremDir + $oPoauthtxt
-$authsvrPath = $onPremDir + $authsvrxml
-$OPintraOrgpath = $onPremDir + $OPintraOrgxml
-$hcwSetOPPath = $onPremDir + $hcwSetCmdOPtxt
+$hybxmlPath = $onPremDir + '\Hybrid-Config.xml'
+$hybtxtPath = $onPremDir + '\Hybrid-Config.txt'
+$sendConnXmlPath = $onPremDir + '\Get-SendConnector.xml'
+$sendConnTxtPath = $onPremDir + '\Get-Sendconnector.txt'
+$recConnXmlPath = $onPremDir + '\Get-ReceiveConnector.xml'
+$recConnTxtPath = $onPremDir + '\Get-ReceiveConnector.txt'
+$exchCertpath = $onPremDir + '\ExchangeCertificate.txt'
+$opsharPath = $onPremDir + '\OnPrem-SharingConfig.txt'
+$ewsxmlPath = $onPremDir + '\EWS-XMLOutput.xml'
+$ewstxtPath = $onPremDir + '\EWS-TxtOutput.txt' 
+$opOauthPath = $onPremDir + '\OnPrem-OAuthConfigs.txt'
+$authsvrxmlPath = $onPremDir + '\Get-AuthServer.xml'
+$hcwSetOPPath = $onPremDir + '\HCW-Cmds_OnPrem.txt'
+#$OPintraOrgxmlpath = $onPremDir + '\OnPrem-IntraOrgConnector.xml'
+#$OPintraOrgtxtpath = $onPremDir + '\OnPrem-IntraOrgConnector.txt'
 
 #Cloud output paths:
-$CLIntraOrgpath = $cloudDir + $CLIntraOrgxml
-$clOauthpath = $cloudDir + $cLoauthtxt
-$cloudPath = $cloudDir + $cloudConfig
+$clIntraOrgtxtpath = $cloudDir + $clIntraOrgtxt
+$clIntraOrgxmlpath = $cloudDir + $CLIntraOrgxml
+$clOauthpath = $cloudDir + $cloauthtxt
+$cloudPath = $cloudDir + $cloudsharetxt
+$cloudOrgpath = $cloudDir + $cloudOrgtxt
 $hcwSetCloudpath = $cloudDir + $hcwSetCmdCloudtxt
+$inbConnpath = $cloudDir + $inbConntxt
+$outbConnpath = $cloudDir + $outbConntxt
+$migEndpath = $cloudDir + $migEndptxt
+$accDompath = $cloudDir + $accptDomtxt
 
 #Hybrid Folder creation/validation:
-$testPathD = Test-Path $outputDir
-    if ($testPathD -eq $false){
+    if (!(Test-Path $outputDir)){
     New-Item -itemtype Directory -Path $outputDir
     }
 
@@ -173,8 +193,7 @@ $hcwLog.SelectNodes('//invoke') | Where-Object {$_.cmdlet -like "*New*" -and $_.
 #OnPrem folder creation/validation:
 function OnPremDir-Create {
     Write-Host -ForegroundColor Cyan "Creating collection folder..."
-    $testPathOP = Test-Path $onPremDir
-     if ($testPathOP -eq $false) {
+    if (!(Test-Path $onPremDir)) {
      New-Item -itemtype Directory -Path $onPremDir 
     } 
 }
@@ -182,13 +201,12 @@ function OnPremDir-Create {
 #Cloud folder creation:
 function CloudDir-Create {
     Write-Host -ForegroundColor Cyan "Creating collection folder..."
-    $testPathCL = Test-Path $cloudDir
-    if ($testPathCL -eq $false) {
+    if (!(Test-Path $cloudDir)) {
     New-Item -itemtype Directory -Path $cloudDir
     }
 }
 
-#Remote On-Prem Yes-No Function:
+#Collect On-Prem Yes-No Function:
 function OnPrem-RemoteQ {
 Write-Host -ForegroundColor Yellow "Do you wish to collect on-premises data? Y/N:"
   $ans = Read-Host
@@ -246,40 +264,38 @@ function OnPrem-Collection {
         $FormatEnumerationLimit=-1
     }
     #On-Prem Configs Collection:
-    $hybConf = Get-HybridConfiguration 
-    $hybConf | Export-Clixml $hybPath
+    $hybConf = Get-HybridConfiguration
+    $hybConf | FL | Out-File $hybtxtPath
+    $hybConf | Export-Clixml $hybxmlPath
     Start-Sleep -Seconds 2
     
-    $shpol =  "Sharing Policy Details:" 
-    $shpol | Out-File $opPath
+    $shpol =  "===Sharing Policy Details===:" 
+    $shpol | Out-File $opsharPath
     $sharePol = Get-SharingPolicy 
-    $sharePol | FL | Out-File -Append $opPath
-    Add-Content $opPath -Value "=========="
+    $sharePol | FL | Out-File -Append $opsharPath
     Start-Sleep -Seconds 2
-    Add-Content $opPath -Value "Org Relationship Details:"
+    Add-Content $opsharPath -Value "===Org Relationship Details===:"
     $orgRel = Get-OrganizationRelationship 
-    $orgRel |FL | Out-File -Append $opPath
-    Add-Content $opPath -Value "=========="
+    $orgRel |FL | Out-File -Append $opsharPath
     Start-Sleep -Seconds 2
-    Add-Content $opPath -Value "Federation Information:"
+    Add-Content $opsharPath -Value "===Federation Information===:"
     $fedInfo = Get-FederationInformation -DomainName $domain
-    $fedInfo |FL | Out-File -Append $opPath
-    Add-Content $opPath -Value "=========="
+    $fedInfo |FL | Out-File -Append $opsharPath
     Start-Sleep -Seconds 2
-    Add-Content $opPath -Value "Organization Config Details:"
+    Add-Content $opsharPath -Value "===Organization Config Details===:"
     $orgConfig = Get-OrganizationConfig
-    $orgConfig |FL | Out-File -Append $opPath
+    $orgConfig |FL | Out-File -Append $opsharPath
     Start-Sleep -Seconds 2
-    #Exch Certs
+    #Exch Certs:
     ExchCert-Collection
     #Mail Connectors:
-    $sendTitle = "Send Connector Details:"
+    $sendTitle = "===Send Connector Details===:"
     $sendtitle | Out-File $sendConnTxtPath
     $sendConn = Get-SendConnector |? {$_.AddressSpaces -like '*onmicrosoft.com*'}
     $sendConn | Export-Clixml $sendConnxmlPath
     $sendConn | FL | Out-File -Append $sendConnTxtPath
     Start-Sleep -Seconds 2
-    $recTitle = "Receive Connector Details:"
+    $recTitle = "===Receive Connector Details===:"
     $recTitle  | Out-File $recConnTxtPath
     $recvConn = Get-ReceiveConnector |?{$_.TlsDomainCapabilities -like '*outlook*'}
     $recvConn | Export-Clixml $recConnxmlPath
@@ -295,28 +311,28 @@ function OnPrem-Collection {
         Write-Host -ForegroundColor Cyan "No IntraOrg Connector detected, OAUth may not be configured..."
         } else
             {
-    $iorgtext = "IntraOrg Connector:"
-    $iorgtext | Out-File $OPoauthPath
+    $iorgtext = "===IntraOrg Connector===:"
+    $iorgtext | Out-File $opOauthPath
     $iOrgConn | FL | Out-File -Append $OPoauthPath
-    Add-Content $OPoauthPath -Value "=========="
-    Add-Content $OPoauthPath -Value "IntraOrganization Configs:"
+    Add-Content $OPoauthPath -Value "===IntraOrganization Configs===:"
     $iOrgConf = Get-IntraOrganizationConfiguration -WarningAction:SilentlyContinue
     $iOrgConf |FL | Out-File -Append $OPoauthPath
-    Add-Content $OPoauthPath -Value "=========="
-    Add-Content $OPoauthPath -Value "Partner Application Details:"
+    Add-Content $OPoauthPath -Value "===Partner Application Details===:"
     $ptnrapp = Get-PartnerApplication 
     $ptnrapp |FL | Out-File -Append $OPoauthPath
-    
+    Add-Content $opOauthPath -Value "===Auth Server Settings===:"
     $authsvr = Get-AuthServer
-    $authsvr | Export-Clixml $authsvrPath
+    $authsvr | FL Name,type,realm,TokenIssuingEndpoint,AuthorizationEndpoint | Out-File -Append $opOauthPath
+    Add-Content $OPoauthPath -Value "**Additional Auth Server details found in XML file."
+    $authsvr | Export-Clixml $authsvrxmlPath
     }
-    
+
     #Close remote connection:
-    Write-Host -ForegroundColor White "Collection complete -- closing connection to Exchange..."
+    Write-Host -ForegroundColor Green "Collection complete. Closing connection to Exchange..."
     Get-PSSession | Remove-PSSession
     Start-Sleep -Seconds 2
     }
-#Remote EXO Yes-No Function:
+#Collect EXO Yes-No Function:
 function EXO-RemoteQ {
     Write-Host -ForegroundColor Yellow "Do you wish to collect M365 data? Y/N:"
     $ans = Read-Host
@@ -334,6 +350,7 @@ function EXO-RemoteQ {
         Remote-EXOPS
         #Collect data:
         EXO-Collection
+        AAD-Collection
     } else {
             $ans = 'no'
             Write-Host -ForegroundColor Cyan "Skipping M365 data collection..."
@@ -351,7 +368,8 @@ function Remote-EXOPS {
         $exoV2Fail = "EXO V2 Connection Failed"
         }
     if ($null -ne $exoV2Fail) {
-        Write-Host -ForegroundColor Cyan "EXO V2 connection failed. Trying basic auth connection..."
+        Write-Host -ForegroundColor Cyan "EXO V2 connection failed. Consider installing the EXO V2 module as basic auth is being deprecated (http://aka.ms/exopspreview)." 
+        Write-Host -ForegroundColor Cyan "Trying basic auth connection..."
         $exoCred = Get-Credential -UserName $exoUPN -Message "Re-Enter M365 Admin Creds:"
         $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $exoCred -Authentication Basic -AllowRedirection -ErrorAction SilentlyContinue
     try {
@@ -362,39 +380,78 @@ function Remote-EXOPS {
         }
     }
 }
+function AAD-Collection {
+Write-Host -ForegroundColor Cyan "Connecting to Azure AD..."
+    try {
+        Import-Module AzureADPreview
+        Connect-AzureAD
+    }
+    catch {
+        $msolFail = "Connection to Azure AD Failed. Ensure AAD Powershell Module (https://aka.ms/aadposh) is installed and try again..." 
+    }
+    if ($null -ne $msolFail) {
+        Write-Host -ForegroundColor Cyan $msolFail
+        Write-Host -ForegroundColor Cyan "Refer to: https://docs.microsoft.com/en-us/powershell/azure/active-directory/install-msonlinev1?view=azureadps-1.0 for additional details."
+    } else {
+        $svcPrinText = "=== EXO Service Principal for OAuth ==="
+        $svcPrinText | Out-File -Append $clOauthpath
+        $exoSvcid = '00000002-0000-0ff1-ce00-000000000000'
+        $svcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$exoSvcid'"
+        $svcPrinc | FL | Out-File -Append $clOauthpath
+        Add-Content $clOauthpath -Value "*** Expanded ServicePrincipalNames Output***"
+        $svcPrinc | select -ExpandProperty ServicePrincipalNames | Out-File -Append $clOauthpath
+    }
+}
 function EXO-Collection {
 Write-Host -ForegroundColor Cyan "Collecting data from Exchange Online..."
-$shpol = "Sharing Policy Details:"
+$shpol = "===Sharing Policy Details===:"
 $shpol | Out-File $cloudPath
 $sharePol = Get-SharingPolicy 
 $sharePol |FL | Out-File -Append $cloudPath
-Add-Content $cloudPath -Value "=========="
-Start-Sleep -Seconds 2
-Add-Content $cloudPath -Value "Org Relationship Details:"
+Add-Content $cloudPath -Value "===Org Relationship Details===:"
 $orgRel = Get-OrganizationRelationship 
 $orgRel |FL | Out-File -Append $cloudPath
-Add-Content $cloudPath -Value "=========="
 Start-Sleep -Seconds 2
-Add-Content $cloudPath -Value "Organization Config Details:"
-$orgConfig = Get-OrganizationConfig 
-$orgConfig |FL | Out-File -Append $cloudPath
-Add-Content $cloudPath -Value "=========="
-Add-Content $cloudPath -Value "IntraOrg Connector:"
-$CliOrgConn = Get-IntraOrganizationConnector
-$CliOrgConn |Export-Clixml $CLIntraOrgpath
-Add-Content $cloudPath -Value "=========="
-Start-Sleep -Seconds 2
-Add-Content $cloudPath -Value "O365 Outbound Connector Details:"
-$o365OutConn = Get-OutboundConnector |? {$_.enabled -eq 'true'}
-$o365OutConn |FL | Out-File -Append $cloudPath
-Add-Content $cloudPath -Value "=========="
-Add-Content $cloudPath -Value "O365 Inbound Connector Details:"
-$o365InConn = Get-InboundConnector |? {$_.enabled -eq 'true'}
-$o365InConn |FL | Out-File -Append $cloudPath
-Add-Content $cloudPath -Value "===End of File==="
 
-Write-Host -ForegroundColor Cyan "Collection complete -- closing connection to Exchange Online..."
+$cloudOrgtext = "===Organization Config Details===:"
+$cloudOrgtext | Out-File $cloudOrgpath
+$orgConfig = Get-OrganizationConfig 
+$orgConfig |FL | Out-File -Append $cloudOrgpath
+
+$migEndtext = "===Migration Endpoints===:"
+$migEndtext | Out-File $migEndpath
+$migEnd = Get-MigrationEndpoint
+$migEnd | FL | Out-File -Append $migEndpath
+
+#OAuth Configs:
+$iOrgText = "===IntraOrg Connector===:"
+$iOrgText | Out-File $clOauthpath
+$CliOrgConn = Get-IntraOrganizationConnector
+if ($null -ne $CliOrgConn) {
+    $CliOrgConn | FL | Out-File -Append $clOauthpath
+    #$CliOrgConn |Export-Clixml $CLIntraOrgpath
+} else {
+    $iOrgText2 = "***No OAuth Configs found***"
+    $iOrgText2 | Out-File -Append $clOauthpath
+}
 Start-Sleep -Seconds 2
+
+#MailFlow Configs:
+$outbCtext = "===O365 Outbound Connector Details===:"
+$outbCtext | Out-File $outbConnpath
+$o365OutConn = Get-OutboundConnector |? {$_.enabled -eq 'true'}
+$o365OutConn |FL | Out-File -Append $outbConnpath
+$inbCtext = "===O365 Inbound Connector Details===:"
+$inbCtext | Out-File $inbConnpath
+$o365InConn = Get-InboundConnector |? {$_.enabled -eq 'true'}
+$o365InConn |FL | Out-File -Append $inbConnpath
+
+$accDtext = "===Accepted Domain===:"
+$accDtext | Out-File $accDompath
+$accDomain = Get-AcceptedDomain $domain
+$accDomain | FL | Out-File -Append $accDompath
+
+Write-Host -ForegroundColor White "Collection complete. Closing connection to Exchange Online..."
 Get-PSSession | Remove-PSSession
 }
 
