@@ -10,21 +10,8 @@ When connecting to Exchange Online, the script will attempt to import the EXO V2
  If you wish to save previous output, make sure to rename output folders before re-running the script or files will be overwritten.
 **************************************************
 Requirements: 
-    -Powershell should to be 'Run As Administrator'.
-    -Script assumes Kerberos Auth is enabled on-prem.
-    -Supports EXO V2 Powershell module
-    -Details collected for Exchange certificates will be limited due to remote powershell limitations.
-    -If more Exch cert data is needed go ahead and run the 'Get-ExchangeCertificate' cmdlet locally on the server.
-    ::Updates::
-    **Aug 2020**
-    --Modified output file creation
-    **Sept 2020**
-    --Added HCW log parsing for 'Set-' cmdlets
-    --Added EWS Collection function to search for specific servers
-    **Oct 2020**
-    --Added Exch certificate collection function
-    --Added 'New-' cmdlet search within HCW logs
-    **Nov 2020**
-    --Modified folder creation 'Test-Path' functions
-    **Dec 2020**
-    --Added MSOL/AAD data collection for OAuth configs
+-Powershell should to be 'Run As Administrator'.
+-Script assumes Kerberos Auth is enabled on-prem.
+-Supports EXO V2 Powershell module
+-Details collected for Exchange certificates will be limited due to remote powershell limitations.
+-If more Exch cert data is needed go ahead and run the 'Get-ExchangeCertificate' cmdlet locally on the server.
