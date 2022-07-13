@@ -16,3 +16,32 @@ Example: ./hybridconfigcollection.ps1
 Once all collection is complete, the folder containing collected data will be displayed. Some files will be in '.xml' format and some in text files. In some cases, data is sent to both formats for flexibility.
 
 If you wish to save previous output, make sure to rename output folders before re-running the script or files will be overwritten.
+
+::Updates::
+    **Aug 2020**
+    --Modified output file creation
+    **Sept 2020**
+    --Added HCW log parsing for 'Set-' cmdlets
+    --Added EWS Collection function to search for specific servers
+    **Oct 2020**
+    --Added Exch certificate collection function
+    --Added 'New-' cmdlet search within HCW logs
+    **Nov 2020**
+    --Modified folder creation 'Test-Path' functions
+    **Dec 2020**
+    --Added MSOL/AAD data collection for OAuth configs
+    **Jan 2021**
+    --Added HCW log parsing for 'Remove-' cmdlets
+    --Added additional 'Get-' commands to be pulled
+    **Feb 2021**
+    --Added 'Get-FederatedOrganizationIdentifier' collection in EXO
+    **April 2021**
+    --Added option to bypass remote session to on-prem Exchange in the case you are already logged into an Exchange server.
+    --Added 'Get-EmailAddressPolicy' to data collection functions.
+    **May 2022**
+    --Modified output for Partner Applicaiton details:
+        --trucated output within OAuth Configs text file
+        --added XML file for full output
+    --Adding collection of Skype Integration configs
+    **July 2022**
+    --Added Silent Error action for Skype config & Federation checks
