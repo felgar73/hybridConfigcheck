@@ -42,12 +42,19 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Added MSOL/AAD data collection for OAuth configs
     **Jan 2021**
     --Added HCW log parsing for 'Remove-' cmdlets
-    --Added additional 'Get-' commands to be pull
+    --Added additional 'Get-' commands to be pulled
     **Feb 2021**
     --Added 'Get-FederatedOrganizationIdentifier' collection in EXO
     **April 2021**
     --Added option to bypass remote session to on-prem Exchange in the case you are already logged into an Exchange server.
     --Added 'Get-EmailAddressPolicy' to data collection functions.
+    **May 2022**
+    --Modified output for Partner Applicaiton details:
+        --trucated output within OAuth Configs text file
+        --added XML file for full output
+    --Adding collection of Skype Integration configs
+    **July 2022**
+    --Added Silent Error action for Skype config & Federation checks
 #>
 
 #Check for 'run as admin':
@@ -91,6 +98,9 @@ $hcwLogsOPPath = $onPremDir + '\HCW-LogCmds_OnPrem.txt'
 $remDomOPPath = $onPremDir + '\RemoteDomains_OnPrem.txt'
 $authConfigpath = $onPremDir + '\Get-AuthConfig_OnPrem.txt'
 $OPaddpoltxt = $onPremDir + '\EmailAddressPolicy_OnPrem.txt'
+$opOrgConfigtxt = $onPremDir + '\OrganizationConfig-OnPrem.txt'
+$partnerAppxml = $onPremDir + '\PartnerApplication-OnPrem.xml'
+$skypeIntTxt = $onPremDir + '\SkypeIntegration-Configs.txt'
 #$OPintraOrgxmlpath = $onPremDir + '\OnPrem-IntraOrgConnector.xml'
 #$OPintraOrgtxtpath = $onPremDir + '\Get-IntraOrgConnector_OnPrem.txt'
 
@@ -109,7 +119,7 @@ $remDomEXOPath = $cloudDir + '\RemoteDomains_EXO.txt'
 $onPremOrgpath = $cloudDir + '\Get-OnPremisesOrganization.txt'
 $clfederatConfpath = $cloudDir + '\Federation-Configs_EXO.txt'
 $exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
-$exoSpnpath = $cloudDir + '\EXO-SvcPrincipal-OAuth.txt'
+$msoSpnpath = $cloudDir + '\MSO-SvcPrincipal-OAuth.txt'
 $ExOaddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
 
 #Hybrid Folder creation/validation:
@@ -230,8 +240,9 @@ Write-Host -ForegroundColor Yellow "Do you wish to collect on-premises data? Y/N
     #Remote PS Connection Prompt:
     OnPrem-RemoteQ
     #Enter Hybrid server names:
-    Write-Host -ForegroundColor Yellow "Enter your MRS/Hybrid server names separated by commas (Ex: server1,server2):"
-    $hybsvrs = (Read-Host).split(",") | foreach {$_.trim()}
+    Write-Host -ForegroundColor Yellow "Enter your Hybrid server names separated by commas (Ex: server1,server2):"
+    $script:hybsvrs = (Read-Host).split(",") | foreach {$_.trim()}
+
     #Check/Create output folder:
     OnPremDir-Create
     Write-Host -ForegroundColor Cyan "Checking for HCW logs..."
@@ -267,12 +278,12 @@ function Remote-ExchOnPrem {
 }
 #Exch Certs Function:
 function ExchCert-Collection {
-    $exchCerts = $hybsvrs | foreach {Get-ExchangeCertificate -Server $_}
+    $script:exchCerts = $hybsvrs | foreach {Get-ExchangeCertificate -Server $_}
     $exchCerts | FL | Out-File $exchCertpath
 }
 #EWS VDir Collection:
 function EWS-VdirCollect {
-    $ewsVdir = $hybsvrs | foreach {Get-WebServicesVirtualDirectory -Server $_ -ADPropertiesOnly}
+    $script:ewsVdir = $hybsvrs | foreach {Get-WebServicesVirtualDirectory -Server $_ -ADPropertiesOnly}
     $ewsVdir | Export-Clixml $ewsxmlPath
     $ewsVdir | FL | Out-File $ewstxtPath
 }
@@ -286,11 +297,21 @@ function OnPrem-Collection {
         $FormatEnumerationLimit=-1
     }
     #On-Prem Configs Collection:
+    $hybtext = "===Hybrid Servers Entered===:"
+    $hybtext | Out-File $hybtxtPath
+    $hybsvrs | Out-File -Append $hybtxtPath
+    Add-Content $hybtxtPath -Value "===Hybrid Configuration===:"
     $hybConf = Get-HybridConfiguration
-    $hybConf | FL | Out-File $hybtxtPath
+    $hybConf | FL | Out-File -Append $hybtxtPath
     $hybConf | Export-Clixml $hybxmlPath
     Start-Sleep -Seconds 2
     
+    $OrgConfigtitle = "===On-Premises Organization Config Details===:"
+    $OrgConfigtitle | Out-File $opOrgConfigtxt
+    $orgConfig = Get-OrganizationConfig
+    $orgConfig |FL | Out-File -Append $opOrgConfigtxt
+    Start-Sleep -Seconds 2
+
     $shpol =  "===Sharing Policy Details===:" 
     $shpol | Out-File $opsharPath
     $sharePol = Get-SharingPolicy 
@@ -300,10 +321,6 @@ function OnPrem-Collection {
     $orgRel = Get-OrganizationRelationship 
     $orgRel |FL | Out-File -Append $opsharPath
     Start-Sleep -Seconds 2
-    Add-Content $opsharPath -Value "===Organization Config Details===:"
-    $orgConfig = Get-OrganizationConfig
-    $orgConfig |FL | Out-File -Append $opsharPath
-    Start-Sleep -Seconds 2
 
     #Federation Config Info:
     $fedinfotext = "===Federated Organization Identifier===:"
@@ -311,7 +328,7 @@ function OnPrem-Collection {
     $fedIdent = Get-FederatedOrganizationIdentifier -IncludeExtendedDomainInfo: $false
     $fedIdent | FL | Out-File -Append $opfederatConfpath
     Add-Content $opfederatConfpath -Value "===Federation Information===:"
-    $fedInfo = Get-FederationInformation -DomainName $domain
+    $fedInfo = Get-FederationInformation -DomainName $domain -ErrorAction SilentlyContinue
     $fedInfo |FL | Out-File -Append $opfederatConfpath
     Add-Content $opfederatConfpath -Value "===Federation Trust Info===:"
     $fedtrust = Get-FederationTrust
@@ -354,31 +371,41 @@ function OnPrem-Collection {
     #OAuth Config Details:
     $iOrgConn = Get-IntraOrganizationConnector
     if (!$iOrgConn){
-        $iorgtext = "No IntraOrg Connector detected, OAuth may not be configured..."
-        Write-Host -ForegroundColor Cyan $iorgtext
-        $iorgtext | Out-File $opOauthPath
-        } else
-            {
+        $iocFailtext = "No IntraOrg Connector detected, OAuth may not be configured..."
+        Write-Host -ForegroundColor Cyan $iocFailtext
+        }
     $iorgtext = "===IntraOrg Connector===:"
     $iorgtext | Out-File $opOauthPath
-    $iOrgConn | FL | Out-File -Append $OPoauthPath
+    if ($iocFailtext -ne $null) {
+        $iocFailtext | Out-File -Append $opOauthPath
+    }
+    $iOrgConn | FL | Out-File -Append $opOauthPath
     Add-Content $OPoauthPath -Value "===IntraOrganization Configs===:"
     $iOrgConf = Get-IntraOrganizationConfiguration -WarningAction:SilentlyContinue
     $iOrgConf |FL | Out-File -Append $OPoauthPath
     Add-Content $OPoauthPath -Value "===Partner Application Details===:"
     $ptnrapp = Get-PartnerApplication 
-    $ptnrapp |FL | Out-File -Append $OPoauthPath
+    $ptnrapp |FL Name,Enabled,Applicationidentifier,UseAuthServer,LinkedAccount| Out-File -Append $OPoauthPath
+    $ptnrapp | Export-Clixml $partnerappxml
     Add-Content $opOauthPath -Value "===Auth Server Settings===:"
     $authsvr = Get-AuthServer
-    $authsvr | FL Name,type,realm,enabled,TokenIssuingEndpoint,AuthorizationEndpoint | Out-File -Append $opOauthPath
+    $authsvr | FL Name,type,realm,enabled,TokenIssuingEndpoint,AuthorizationEndpoint,IsDefaultAuthorizationEndpoint | Out-File -Append $opOauthPath
     Add-Content $OPoauthPath -Value "**Additional Auth Server details found in XML file."
     $authsvr | Export-Clixml $authsvrxmlPath
-
     $authConftext = "===On-Premises Auth Config===:"
     $authConftext | Out-File $authConfigpath
     $authConf = Get-AuthConfig
     $authConf | Out-File -Append $authConfigpath
-    }
+
+    #Skype Integration Details:
+    $skypText = "===Skype On-prem Integration Details===:"
+    $skypText | Out-File $skypeIntTxt
+    $sfbUser = Get-MailUser Sfb* -ErrorAction SilentlyContinue
+    $sfbUser | FL | Out-File -Append $skypeIntTxt
+    $userAppRole = Get-ManagementRoleAssignment -Role UserApplication -GetEffectiveUsers |? {$_.EffectiveUserName -like 'Exchange*'}
+    $archiveAppRole = Get-ManagementRoleAssignment -Role ArchiveApplication -GetEffectiveUsers |? {$_.EffectiveUserName -like 'Exchange*'}
+    $userAppRole |FL Role, *User*, WhenCreated | Out-File -Append $skypeIntTxt
+    $archiveAppRole |FL Role, *User*, WhenCreated | Out-File -Append $skypeIntTxt
 
     #Close remote connection:
     Write-Host -ForegroundColor White "Closing connection to Exchange..."
@@ -412,16 +439,16 @@ function EXO-RemoteQ {
 #Remote EXO PS Function:
 function Remote-EXOPS {
     Write-Host -ForegroundColor Cyan "Connecting to Exchange Online..."
-    Write-Host -ForegroundColor Yellow "Enter your M365 admin credentials (Ex: admin@yourdomain.onmicrosoft.com):"
+    Write-Host -ForegroundColor Yellow "Enter your M365 admin username (Ex: admin@yourdomain.onmicrosoft.com):"
     $exoUPN = Read-Host
-    try { 
+    try {
         Import-Module ExchangeOnlineManagement
         Connect-ExchangeOnline -UserPrincipalName $exoUPN -ShowBanner:$false
     } catch {
         $exoV2Fail = "EXO V2 Connection Failed"
         }
     if ($null -ne $exoV2Fail) {
-        Write-Host -ForegroundColor Cyan "EXO V2 connection failed. Consider installing the EXO V2 module as basic auth is being deprecated (http://aka.ms/exopspreview)." 
+        Write-Host -ForegroundColor Cyan "EXO connection failed. Ensure that the EXO V2 module is installed (https://aka.ms/exops-docs)." 
         Write-Host -ForegroundColor Cyan "Trying basic auth connection..."
         $exoCred = Get-Credential -UserName $exoUPN -Message "Re-Enter M365 Admin Creds:"
         $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $exoCred -Authentication Basic -AllowRedirection -ErrorAction SilentlyContinue
@@ -433,6 +460,7 @@ function Remote-EXOPS {
         }
     }
 }
+#Service Principal Collection for OAuth:
 function AAD-Collection {
 Write-Host -ForegroundColor Cyan "Connecting to Azure AD..."
     try {
@@ -448,15 +476,19 @@ Write-Host -ForegroundColor Cyan "Connecting to Azure AD..."
         Write-Host -ForegroundColor White $AADSvcPrinCmdlet
         Write-Host -ForegroundColor Cyan "Refer to: https://docs.microsoft.com/en-us/powershell/azure/active-directory/install-msonlinev1?view=azureadps-1.0 for additional details on AAD module."
     } else {
-        $svcPrinText = "=== EXO Service Principal for OAuth ==="
-        $svcPrinText | Out-File -Append $exoSpnpath
-        $exoSvcid = '00000002-0000-0ff1-ce00-000000000000'
-        $svcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$exoSvcid'"
-        $svcPrinc | FL | Out-File -Append $exoSpnpath
-        Add-Content $exoSpnpath -Value "=== Expanded 'ServicePrincipalNames' Output ==="
-        $svcPrinc | select -ExpandProperty ServicePrincipalNames | Out-File -Append $exoSpnpath
+        $svcPrinText = "=== Azure AD Service Principals for OAuth ==="
+        $svcPrinText | Out-File -Append $msoSpnpath
+        $exoSvcId = '00000002-0000-0ff1-ce00-000000000000'
+        $skypeSvcId = '00000004-0000-0ff1-ce00-000000000000'
+        $exosvcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$exoSvcid'"
+        $skypsvcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$skypeSvcid'"
+        $exosvcPrinc | FL AppDisplayName,ObjectType,AccountEnabled,AppId | Out-File -Append $msoSpnpath
+        Add-Content $msoSpnpath -Value "Registered 'ServicePrincipalNames':"
+        $exosvcPrinc | select -ExpandProperty ServicePrincipalNames | Out-File -Append $msoSpnpath
     }
 }
+
+#EXO Data Collection:
 function EXO-Collection {
 Write-Host -ForegroundColor Cyan "Collecting data from Exchange Online..."
 $shpol = "===Sharing Policy Details===:"
