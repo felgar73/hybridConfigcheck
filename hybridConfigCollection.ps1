@@ -55,10 +55,11 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Adding collection of Skype Integration configs
     **July 2022**
     --Added Silent Error action for Skype config & Federation checks
-    **Sept 2022**
-    --Removing Basic Auth as an optional login
-    **April 2023**
-    --Renamed variable for EXO v3 PS failure
+    
+     **April 2023**
+   --Removing Basic Auth as an optional login
+   --Renamed variable for EXO v3 PS failure
+   --Removed mentions of v2 module and replaced with v3
 #>
 
 #Check for 'run as admin':
