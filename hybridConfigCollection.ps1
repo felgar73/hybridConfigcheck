@@ -27,7 +27,7 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     When connecting to Exchange Online, the script will attempt to import the EXO V2 powershell module; if this fails it will fallback to the legacy, Basic Auth remote method.
     When connecting to Azure AD in order to collect OAuth some settings, the script will attempt to import the AzureADPreview powershell module; if this fails it will continue with other operations and this will require manual collection.
 
-    ::Updates::
+    ###Updates:
     **Aug 2020**
     --Modified output file creation
     **Sept 2020**
@@ -55,6 +55,10 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Adding collection of Skype Integration configs
     **July 2022**
     --Added Silent Error action for Skype config & Federation checks
+    **Sept 2022**
+    --Removing Basic Auth as an optional login
+    **April 2023**
+    --Renamed variable for EXO v3 PS failure
 #>
 
 #Check for 'run as admin':
@@ -333,7 +337,7 @@ function OnPrem-Collection {
     Add-Content $opfederatConfpath -Value "===Federation Trust Info===:"
     $fedtrust = Get-FederationTrust
     $fedtrust | Export-Clixml $opfederatConfxml
-    $fedtrust | FL Name,TokenIssuer*,WebRequestorRedirectEpr | Out-File -Append $opfederatConfpath
+    $fedtrust | FL Name,Org*certificate,TokenIssuerUri,TokenIssuerEpr,WebRequestorRedirectEpr | Out-File -Append $opfederatConfpath
     $fedtrusttxt = "For additional Federation Trust details, see 'Federation-Trust_OnPrem.xml' file."
     Add-Content $opfederatConfpath -Value $fedtrusttxt
     Start-Sleep -Seconds 2
@@ -397,6 +401,18 @@ function OnPrem-Collection {
     $authConf = Get-AuthConfig
     $authConf | Out-File -Append $authConfigpath
 
+    #Test OAuth Config: 
+    function OAuth-Test-OP {
+    Write-Host -ForegroundColor Yellow "Would you like to test OAuth on-prem? Y/N:"
+        $ans = Read-Host
+        if ((!$ans) -or ($ans -eq 'y') -or ($ans -eq 'yes')){
+            $ans = 'yes'
+            Test-OAuthConnectivity -Service EWS -TargetUri https://outlook.office365.com/ews/exchange.asmx -Mailbox $testMbx -Verbose 
+        } else {$ans = 'no'
+        Write-Host -ForegroundColor White "Skipping OAuth Test..."
+            }
+    }    
+       
     #Skype Integration Details:
     $skypText = "===Skype On-prem Integration Details===:"
     $skypText | Out-File $skypeIntTxt
@@ -445,19 +461,11 @@ function Remote-EXOPS {
         Import-Module ExchangeOnlineManagement
         Connect-ExchangeOnline -UserPrincipalName $exoUPN -ShowBanner:$false
     } catch {
-        $exoV2Fail = "EXO V2 Connection Failed"
+        $exoV3Fail = "EXO Remote PS Connection Failed"
         }
-    if ($null -ne $exoV2Fail) {
-        Write-Host -ForegroundColor Cyan "EXO connection failed. Ensure that the EXO V2 module is installed (https://aka.ms/exops-docs)." 
-        Write-Host -ForegroundColor Cyan "Trying basic auth connection..."
-        $exoCred = Get-Credential -UserName $exoUPN -Message "Re-Enter M365 Admin Creds:"
-        $Session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://outlook.office365.com/powershell-liveid/ -Credential $exoCred -Authentication Basic -AllowRedirection -ErrorAction SilentlyContinue
-    try {
-        Import-PSSession $Session
-    }catch {
-       Write-Host -ForegroundColor Cyan "Remote Powershell to Exchange Online failed, please try again..."
-       exit
-        }
+    if ($null -ne $exoV3Fail) {
+        Write-Host -ForegroundColor Cyan "Remote EXO connection failed." 
+        Write-Host -ForegroundColor Cyan "Ensure that the EXO V3 module is installed (https://aka.ms/exops-docs) and that basic auth is disabled in your tenant." 
     }
 }
 #Service Principal Collection for OAuth:
