@@ -16,16 +16,15 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
 
     General Notes:
     -Script assumes Kerberos Auth is enabled on-prem for remote Exchange session.
-    -Supports EXO V2 Powershell module.
+    -Requires EXO V3 Powershell module for EXO collection.
     -Script can be run from any domain-joined machine, but it's recommended to run from Exchange Mgmt Shell directly and bypass remote powershell connection.
-    -Details collected for Exchange certificates will be limited due to remote powershell limitations. 
+    -Details collected for Exchange certificates via remote powershell will be limited due to remote powershell limitations. 
 
     The script will first prompt you on whether you wish to collect on-premises Exchange data and whether or not a remote powershell session is needed for this (if running from local Exchange server, simply answer to this question). 
     Once On-prem collection is complete (or if you answer 'no'), it will ask whether you wish to collect Exchange Online data. 
     Once complete, it will display the location of collection data. Some files will be in '.xml' format and some in text files. In some cases, data is sent to both formats for flexibility.
 
-    When connecting to Exchange Online, the script will attempt to import the EXO V2 powershell module; if this fails it will fallback to the legacy, Basic Auth remote method.
-    When connecting to Azure AD in order to collect OAuth some settings, the script will attempt to import the AzureADPreview powershell module; if this fails it will continue with other operations and this will require manual collection.
+    The script will attempt to import the MgGraph powershell module in order to collect OAuth configs from Entra ID; if this fails it will continue with other operations but this data will require manual collection.
 
     ###Updates:
     **Aug 2020**
@@ -55,11 +54,15 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Adding collection of Skype Integration configs
     **July 2022**
     --Added Silent Error action for Skype config & Federation checks
-    
-     **April 2023**
-   --Removing Basic Auth as an optional login
-   --Renamed variable for EXO v3 PS failure
-   --Removed mentions of v2 module and replaced with v3
+    **Sept 2022**
+    --Removing Basic Auth as an optional login
+    **April 2023**
+    --Renamed variable for EXO v3 PS failure
+    **Nov 2023**
+    --Now collecting ALL EXO mailflow connectors including "test mode" connectors
+    **Jan 2024**
+    --Added Json output commands to replace xml output
+    --Replaced MSO commands with MS Graph for Entra ID/OAuth data collection
 #>
 
 #Check for 'run as admin':
@@ -85,47 +88,66 @@ $onPremDir = $outputDir + '\OnPremCollection'
 $cloudDir = $outputDir + '\CloudCollection'
 
 #OnPrem output paths:
-$hybxmlPath = $onPremDir + '\Hybrid-Config.xml'
+$hybConfigjson = $onPremDir + '\HybridConfig.json'
+#$hybxmlPath = $onPremDir + '\Hybrid-Config.xml'
 $hybtxtPath = $onPremDir + '\Hybrid-Config.txt'
-$sendConnXmlPath = $onPremDir + '\SendConnector.xml'
+$sendConnJson = $onPremDir + '\SendConnectors.json'
+#$sendConnXmlPath = $onPremDir + '\SendConnector.xml'
 $sendConnTxtPath = $onPremDir + '\Sendconnector.txt'
-$recConnXmlPath = $onPremDir + '\ReceiveConnectors.xml'
+$recConnjson = $onPremDir + '\ReceiveConnectors.json'
+#$recConnXmlPath = $onPremDir + '\ReceiveConnectors.xml'
 $recConnTxtPath = $onPremDir + '\ReceiveConnectors.txt'
+$exchCertjson = $onPremDir + '\Get-ExchangeCertificate.json'
 $exchCertpath = $onPremDir + '\Exchange-Certificates.txt'
+$opsharePolicyjson = $onPremDir + '\Get-SharingPolicy.json'
 $opsharPath = $onPremDir + '\Sharing-Configs_OnPrem.txt'
+$opfedorgIdjson = $onPremDir + '\Get-FederatedOrganizationIdentifier.json'
 $opfederatConfpath = $onPremDir + '\Federation-Configs_OnPrem.txt'
-$opfederatConfxml = $onPremDir + '\Federation-Trust_OnPrem.xml'
-$ewsxmlPath = $onPremDir + '\EWS-XMLOutput.xml'
-$ewstxtPath = $onPremDir + '\EWS-TxtOutput.txt' 
+$opfedTrustjson = $onPremDir + '\Get-FederationTrust.json'
+$ewsVdirjson = $onPremDir + '\Get-WebServicesVirtualDirectory.json'
+$ewstxtPath = $onPremDir + '\EWS-TxtOutput.txt'
+$opOauthConfigjson = $onPremDir + '\OAuthConfig.json'
 $opOauthPath = $onPremDir + '\OAuth-Configs_OnPrem.txt'
-$authsvrxmlPath = $onPremDir + '\Get-AuthServer.xml'
+#$authsvrxmlPath = $onPremDir + '\Get-AuthServer.xml'
+$authSvrjson = $onPremDir + '\Get-AuthServer.json'
 $hcwLogsOPPath = $onPremDir + '\HCW-LogCmds_OnPrem.txt'
-$remDomOPPath = $onPremDir + '\RemoteDomains_OnPrem.txt'
+$opRemDomtxt = $onPremDir + '\RemoteDomains_OnPrem.txt'
+$opRemdomjson = $onPremDir + '\Get-RemoteDomain.json'
 $authConfigpath = $onPremDir + '\Get-AuthConfig_OnPrem.txt'
 $OPaddpoltxt = $onPremDir + '\EmailAddressPolicy_OnPrem.txt'
+$opAddpoljson = $onPremDir + '\Get-EmailAddressPolicy.json'
 $opOrgConfigtxt = $onPremDir + '\OrganizationConfig-OnPrem.txt'
-$partnerAppxml = $onPremDir + '\PartnerApplication-OnPrem.xml'
+#$partnerAppxml = $onPremDir + '\PartnerApplication-OnPrem.xml'
+$partnerAppjson = $onPremDir + '\Get-PartnerApplication.json'
 $skypeIntTxt = $onPremDir + '\SkypeIntegration-Configs.txt'
-#$OPintraOrgxmlpath = $onPremDir + '\OnPrem-IntraOrgConnector.xml'
-#$OPintraOrgtxtpath = $onPremDir + '\Get-IntraOrgConnector_OnPrem.txt'
+$opIOConnjson = $onPremDir + '\Get-IntraOrganizationConnector.json'
 
 #Cloud output paths:
 $clIntraOrgtxtpath = $cloudDir + '\Get-IntraOrgConnector_EXO.txt'
-$clIntraOrgxmlpath = $cloudDir + '\Get-IntraOrgConnector_EXO.xml'
+#$clIntraOrgxmlpath = $cloudDir + '\Get-IntraOrgConnector_EXO.xml'
+$clIOConnjson = $cloudDir + '\Get-IntraOrganizationConnector.json'
 $clOauthpath = $cloudDir + '\Oauth-Configs_EXO.txt'
 $clSharingPath = $cloudDir + '\Sharing-Configs_EXO.txt'
+$exosharingpoljson = $cloudDir + '\Get-SharingPolicy.json'
 $cloudOrgpath = $cloudDir + '\Get-OrganizationConfig_EXO.txt'
 $hcwLogsCloudpath = $cloudDir + '\HCW-LogCmds_M365.txt'
 $inbConnpath = $cloudDir + '\Inbound-Connector_EXO.txt'
+$inbConnjson = $cloudDir + '\Get-InboundConnector.json'
 $outbConnpath = $cloudDir + '\Outbound-Connector_EXO.txt'
+$outbConnjson = $cloudDir + '\Get-OutboundConnector.json'
 $migEndpath = $cloudDir + '\Migration-Endpoints_EXO.txt'
 $accDompath = $cloudDir + '\Accepted-Domain_EXO.txt'
 $remDomEXOPath = $cloudDir + '\RemoteDomains_EXO.txt'
+$exoRemdomjson = $cloudDir + '\Get-RemoteDomain.json'
 $onPremOrgpath = $cloudDir + '\Get-OnPremisesOrganization.txt'
 $clfederatConfpath = $cloudDir + '\Federation-Configs_EXO.txt'
-$exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
+#$exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
+$exoFedTrustjson = $cloudDir + '\Get-FederationTrust.json'
 $msoSpnpath = $cloudDir + '\MSO-SvcPrincipal-OAuth.txt'
-$ExOaddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
+$exoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-EXO.json'
+$spoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-SPO.json'
+$exoAddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
+$exoAddpoljson = $cloudDir + '\Get-EmailAddressPolicy.json'
 
 #Hybrid Folder creation/validation:
     if (!(Test-Path $outputDir)){
@@ -285,12 +307,13 @@ function Remote-ExchOnPrem {
 function ExchCert-Collection {
     $script:exchCerts = $hybsvrs | foreach {Get-ExchangeCertificate -Server $_}
     $exchCerts | FL | Out-File $exchCertpath
+    $exchCerts | ConvertTo-Json | Out-File $exchCertjson
 }
 #EWS VDir Collection:
 function EWS-VdirCollect {
     $script:ewsVdir = $hybsvrs | foreach {Get-WebServicesVirtualDirectory -Server $_ -ADPropertiesOnly}
-    $ewsVdir | Export-Clixml $ewsxmlPath
     $ewsVdir | FL | Out-File $ewstxtPath
+    $ewsVdir | ConvertTo-Json | Out-File $ewsVdirjson
 }
 
 #On-Prem Data collection:
@@ -308,7 +331,8 @@ function OnPrem-Collection {
     Add-Content $hybtxtPath -Value "===Hybrid Configuration===:"
     $hybConf = Get-HybridConfiguration
     $hybConf | FL | Out-File -Append $hybtxtPath
-    $hybConf | Export-Clixml $hybxmlPath
+    $hybConf | ConvertTo-Json | Out-File $hybConfigjson
+    #$hybConf | Export-Clixml $hybxmlPath
     Start-Sleep -Seconds 2
     
     $OrgConfigtitle = "===On-Premises Organization Config Details===:"
@@ -321,6 +345,7 @@ function OnPrem-Collection {
     $shpol | Out-File $opsharPath
     $sharePol = Get-SharingPolicy 
     $sharePol | FL | Out-File -Append $opsharPath
+    $sharePol | ConvertTo-Json | Out-File $opsharePolicyjson
     Start-Sleep -Seconds 2
     Add-Content $opsharPath -Value "===Org Relationship Details===:"
     $orgRel = Get-OrganizationRelationship 
@@ -337,9 +362,10 @@ function OnPrem-Collection {
     $fedInfo |FL | Out-File -Append $opfederatConfpath
     Add-Content $opfederatConfpath -Value "===Federation Trust Info===:"
     $fedtrust = Get-FederationTrust
-    $fedtrust | Export-Clixml $opfederatConfxml
+    $fedtrust | ConvertTo-Json | Out-File $opfedTrustjson
+    #$fedtrust | Export-Clixml $opfederatConfxml
     $fedtrust | FL Name,Org*certificate,TokenIssuerUri,TokenIssuerEpr,WebRequestorRedirectEpr | Out-File -Append $opfederatConfpath
-    $fedtrusttxt = "For additional Federation Trust details, see 'Federation-Trust_OnPrem.xml' file."
+    $fedtrusttxt = "For additional Federation Trust details, see 'Get-FederationTrust.json' file."
     Add-Content $opfederatConfpath -Value $fedtrusttxt
     Start-Sleep -Seconds 2
     
@@ -350,24 +376,28 @@ function OnPrem-Collection {
     $sendTitle = "===Send Connector Details===:"
     $sendtitle | Out-File $sendConnTxtPath
     $sendConn = Get-SendConnector |? {$_.AddressSpaces -like '*onmicrosoft.com*'}
-    $sendConn | Export-Clixml $sendConnxmlPath
+    $sendConn | ConvertTo-Json | Out-File $sendConnjson
+    #$sendConn | Export-Clixml $sendConnxmlPath
     $sendConn | FL | Out-File -Append $sendConnTxtPath
     Start-Sleep -Seconds 2
     $recTitle = "===Receive Connector Details===:"
     $recTitle  | Out-File $recConnTxtPath
     $recvConn = Get-ReceiveConnector |?{$_.TlsDomainCapabilities -like '*outlook*'}
-    $recvConn | Export-Clixml $recConnxmlPath
+    #$recvConn | Export-Clixml $recConnxmlPath
+    $recvConn | ConvertTo-Json | Out-File $recConnjson
     $recvConn |FL | Out-File -Append $recConnTxtPath
     #Remote Domains:
     $remText = "===Remote Domains===:"
-    $remText | Out-File $remDomOPPath
+    $remText | Out-File $opRemDomtxt
     $remDom = Get-RemoteDomain
-    $remDom | FL | Out-File -Append $remDomOPPath
+    $remDom | FL | Out-File -Append $opRemDomtxt
+    $remDom | ConvertTo-Json | Out-File $opremDomjson
     #Email Address Policies:
     $addpoltext = "===On-Premises Email Address Policies===:"
     $addpoltext | Out-File $OPaddpoltxt
     $addpolOP = Get-EmailAddressPolicy
     $addpolOP | FL | Out-File -Append $OPaddpoltxt
+    $addpolOP | convertto-json | Out-File $opAddpoljson
     Start-Sleep -Seconds 2
     
     #EWS VDir Collect function:
@@ -387,16 +417,19 @@ function OnPrem-Collection {
     $iOrgConn | FL | Out-File -Append $opOauthPath
     Add-Content $OPoauthPath -Value "===IntraOrganization Configs===:"
     $iOrgConf = Get-IntraOrganizationConfiguration -WarningAction:SilentlyContinue
-    $iOrgConf |FL | Out-File -Append $OPoauthPath
+    $iOrgConf | FL | Out-File -Append $OPoauthPath
+    $iOrgConf | ConvertTo-Json | Out-File $opIOConnjson
     Add-Content $OPoauthPath -Value "===Partner Application Details===:"
-    $ptnrapp = Get-PartnerApplication 
+    $ptnrapp = Get-PartnerApplication
+    $ptnrapp | ConvertTo-Json | Out-File $partnerAppjson 
     $ptnrapp |FL Name,Enabled,Applicationidentifier,UseAuthServer,LinkedAccount| Out-File -Append $OPoauthPath
-    $ptnrapp | Export-Clixml $partnerappxml
+    #$ptnrapp | Export-Clixml $partnerappxml
     Add-Content $opOauthPath -Value "===Auth Server Settings===:"
     $authsvr = Get-AuthServer
+    $authsvr | ConvertTo-Json | Out-File $authSvrjson
     $authsvr | FL Name,type,realm,enabled,TokenIssuingEndpoint,AuthorizationEndpoint,IsDefaultAuthorizationEndpoint | Out-File -Append $opOauthPath
-    Add-Content $OPoauthPath -Value "**Additional Auth Server details found in XML file."
-    $authsvr | Export-Clixml $authsvrxmlPath
+    Add-Content $OPoauthPath -Value "**Additional Auth Server details found in Json file."
+    #$authsvr | Export-Clixml $authsvrxmlPath
     $authConftext = "===On-Premises Auth Config===:"
     $authConftext | Out-File $authConfigpath
     $authConf = Get-AuthConfig
@@ -471,28 +504,31 @@ function Remote-EXOPS {
 }
 #Service Principal Collection for OAuth:
 function AAD-Collection {
-Write-Host -ForegroundColor Cyan "Connecting to Azure AD..."
+Write-Host -ForegroundColor Cyan "Connecting to Entra ID..."
     try {
-        Import-Module AzureADPreview
-        Connect-AzureAD
+        #Install-Module Microsoft.Graph -Scope CurrentUser (if not installed, this will install the MS Graph module)
+        Import-Module Microsoft.Graph.Applications
+        Connect-MgGraph -Scopes "Application.Read.All"
     }
     catch {
-        $msolFail = "Connection to Azure AD Failed. Ensure AAD Powershell Module (https://aka.ms/aadposh) is installed and run the cmdlet below manually to collect OAuth service principal info:"
-        $AADSvcPrinCmdlet = "Get-AzureADServicePrincipal -Filter 'AppId eq '00000002-0000-0ff1-ce00-000000000000''"
+        $msolFail = "Connection to Entra ID Failed. Ensure MgGraph Powershell Module is installed and run the cmdlet below manually to collect OAuth service principal info:"
+        $AADSvcPrinCmdlet = "Get-MgServicePrincipal -Filter 'AppId eq '00000002-0000-0ff1-ce00-000000000000''"
     }
     if ($null -ne $msolFail) {
         Write-Host -ForegroundColor Yellow $msolFail
         Write-Host -ForegroundColor White $AADSvcPrinCmdlet
-        Write-Host -ForegroundColor Cyan "Refer to: https://docs.microsoft.com/en-us/powershell/azure/active-directory/install-msonlinev1?view=azureadps-1.0 for additional details on AAD module."
+        Write-Host -ForegroundColor Cyan "Refer to: https://learn.microsoft.com/en-us/powershell/microsoftgraph/installation?view=graph-powershell-1.0 for additional details on MS Graph module."
     } else {
-        $svcPrinText = "=== Azure AD Service Principals for OAuth ==="
+        $svcPrinText = "=== Entra ID Service Principals for OAuth ==="
         $svcPrinText | Out-File -Append $msoSpnpath
         $exoSvcId = '00000002-0000-0ff1-ce00-000000000000'
         $skypeSvcId = '00000004-0000-0ff1-ce00-000000000000'
-        $exosvcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$exoSvcid'"
-        $skypsvcPrinc = Get-AzureADServicePrincipal -Filter "AppId eq '$skypeSvcid'"
+        $exosvcPrinc = Get-MgServicePrincipal -Filter "AppId eq '$exoSvcid'"
+        $skypsvcPrinc = Get-MgServicePrincipal -Filter "AppId eq '$skypeSvcid'"
+        $exosvcPrinc | ConvertTo-Json | Out-File $exoSvcPrincjson
+        $skypsvcPrinc | ConvertTo-Json | Out-File $spoSvcPrincjson
         $exosvcPrinc | FL AppDisplayName,ObjectType,AccountEnabled,AppId | Out-File -Append $msoSpnpath
-        Add-Content $msoSpnpath -Value "Registered 'ServicePrincipalNames':"
+        #Add-Content $msoSpnpath -Value "Registered 'ServicePrincipalNames':"
         $exosvcPrinc | select -ExpandProperty ServicePrincipalNames | Out-File -Append $msoSpnpath
     }
 }
@@ -517,9 +553,10 @@ Start-Sleep -Seconds 2
 $fedtrusttext = "===Federation Trust Info===:"
 $fedtrusttext | Out-File -Append $clfederatConfpath
 $fedtrustexo = Get-FederationTrust
-$fedtrustexo | Export-Clixml $exofederatConfxml
+#$fedtrustexo | Export-Clixml $exofederatConfxml
+$fedtrustexo | ConvertTo-Json | Out-File $exoFedTrustjson
 $fedtrustexo |FL Name,TokenIssuer*,WebRequestorRedirectEpr | Out-File -Append $clfederatConfpath
-$fedtrusttext = "For full Federation Trust details, see 'Federation-Trust_EXO.xml' file."
+$fedtrusttext = "For full Federation Trust details, see 'Get-FederationTrust.json' file."
 $fedtrusttext | Out-File -Append $clfederatConfpath
 
 $cloudOrgtext = "===Organization Config Details===:"
@@ -543,7 +580,9 @@ $iOrgText | Out-File $clOauthpath
 $CliOrgConn = Get-IntraOrganizationConnector
 if ($null -ne $CliOrgConn) {
     $CliOrgConn | FL | Out-File -Append $clOauthpath
-    #$CliOrgConn |Export-Clixml $CLIntraOrgpath
+    $CliOrgConn | ConvertTo-Json | Out-File $clIOConnjson
+    #$CliOrgConn |Export-Clixml $clIntraOrgxmlpath
+
 } else {
     $iOrgText2 = "***No OAuth Configs found***"
     $iOrgText2 | Out-File -Append $clOauthpath
@@ -553,12 +592,14 @@ Start-Sleep -Seconds 2
 #Mail Flow Configs:
 $outbCtext = "===O365 Outbound Connector Details===:"
 $outbCtext | Out-File $outbConnpath
-$o365OutConn = Get-OutboundConnector |? {$_.enabled -eq 'true'}
-$o365OutConn |FL | Out-File -Append $outbConnpath
+$o365OutConn = Get-OutboundConnector -IncludeTestModeConnectors $true
+$o365OutConn | FL | Out-File -Append $outbConnpath
+$o365OutConn | ConvertTo-Json | Out-File $outbConnjson 
 $inbCtext = "===O365 Inbound Connector Details===:"
 $inbCtext | Out-File $inbConnpath
-$o365InConn = Get-InboundConnector |? {$_.enabled -eq 'true'}
+$o365InConn = Get-InboundConnector 
 $o365InConn |FL | Out-File -Append $inbConnpath
+$o365InConn | ConvertTo-Json | Out-File $inbConnjson
 
 $accDtext = "===Accepted Domain===:"
 $accDtext | Out-File $accDompath
@@ -569,6 +610,7 @@ $remDexotext = '===EXO Remote Domains==='
 $remDexotext | Out-File $remDomEXOPath
 $remDomEXO = Get-RemoteDomain
 $remDomEXO | FL | Out-File -Append $remDomEXOPath
+$remDomEXO | ConvertTo-Json | Out-File $exoRemdomjson
 
 $addpoltext = "===EXO Email Address Policies===:"
 $addpoltext | Out-File $ExOaddpoltxt
