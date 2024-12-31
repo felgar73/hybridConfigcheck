@@ -59,3 +59,13 @@ If you wish to save previous output, make sure to rename output folders before r
 - Removed Basic Auth as an optional login method for EXO powershell
 - Renamed variable used for EXO v3 PS failure
 - Removed mentions of v2 module and and replaced with v3
+
+**Nov 2023**
+- Now collecting ALL EXO mailflow connectors including "test mode" connectors
+
+**Jan 2024**
+- Added Json output commands to replace xml output
+- Replaced MSO commands with MS Graph for Entra ID/OAuth data collection
+
+ **Dec 2024**
+ - Moved EXO-Collection function to avoid creating empty output files if PS connection fails.
