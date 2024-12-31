@@ -18,7 +18,7 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     -Script assumes Kerberos Auth is enabled on-prem for remote Exchange session.
     -Requires EXO V3 Powershell module for EXO collection.
     -Script can be run from any domain-joined machine, but it's recommended to run from Exchange Mgmt Shell directly and bypass remote powershell connection.
-    -Details collected for Exchange certificates via remote powershell will be limited due to remote powershell limitations. 
+    -If using remote powershell, details collected for Exchange certificates will be limited due to a powershell limitation. 
 
     The script will first prompt you on whether you wish to collect on-premises Exchange data and whether or not a remote powershell session is needed for this (if running from local Exchange server, simply answer to this question). 
     Once On-prem collection is complete (or if you answer 'no'), it will ask whether you wish to collect Exchange Online data. 
@@ -63,6 +63,8 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     **Jan 2024**
     --Added Json output commands to replace xml output
     --Replaced MSO commands with MS Graph for Entra ID/OAuth data collection
+    **Dec 2024**
+    --Moved EXO-Collection function to avoid creating empty output files if PS connection fails.
 #>
 
 #Check for 'run as admin':
@@ -143,7 +145,7 @@ $onPremOrgpath = $cloudDir + '\Get-OnPremisesOrganization.txt'
 $clfederatConfpath = $cloudDir + '\Federation-Configs_EXO.txt'
 #$exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
 $exoFedTrustjson = $cloudDir + '\Get-FederationTrust.json'
-$msoSpnpath = $cloudDir + '\MSO-SvcPrincipal-OAuth.txt'
+$msoSpnpath = $cloudDir + '\AAD-SvcPrincipals-OAuth.txt'
 $exoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-EXO.json'
 $spoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-SPO.json'
 $exoAddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
@@ -476,10 +478,9 @@ function EXO-RemoteQ {
         }
         Write-Host -ForegroundColor Cyan "Checking HCW logs..."
         HCWLogs-Cloud
-        #Connect to EXO:
+        #Connect to EXO & Collect Data:
         Remote-EXOPS
-        #Collect data:
-        EXO-Collection
+        #Collect Entra Data:
         AAD-Collection
     } else {
             $ans = 'no'
@@ -501,6 +502,9 @@ function Remote-EXOPS {
         Write-Host -ForegroundColor Cyan "Remote EXO connection failed." 
         Write-Host -ForegroundColor Cyan "Ensure that the EXO V3 module is installed (https://aka.ms/exops-docs) and that basic auth is disabled in your tenant." 
     }
+    else {
+        EXO-Collection
+    }
 }
 #Service Principal Collection for OAuth:
 function AAD-Collection {
@@ -511,11 +515,11 @@ Write-Host -ForegroundColor Cyan "Connecting to Entra ID..."
         Connect-MgGraph -Scopes "Application.Read.All"
     }
     catch {
-        $msolFail = "Connection to Entra ID Failed. Ensure MgGraph Powershell Module is installed and run the cmdlet below manually to collect OAuth service principal info:"
+        $GraphFail = "Connection to Entra ID Failed. Ensure MgGraph Powershell Module is installed and run the cmdlet below manually to collect OAuth service principal info:"
         $AADSvcPrinCmdlet = "Get-MgServicePrincipal -Filter 'AppId eq '00000002-0000-0ff1-ce00-000000000000''"
     }
-    if ($null -ne $msolFail) {
-        Write-Host -ForegroundColor Yellow $msolFail
+    if ($null -ne $GraphFail) {
+        Write-Host -ForegroundColor Yellow $GraphFail
         Write-Host -ForegroundColor White $AADSvcPrinCmdlet
         Write-Host -ForegroundColor Cyan "Refer to: https://learn.microsoft.com/en-us/powershell/microsoftgraph/installation?view=graph-powershell-1.0 for additional details on MS Graph module."
     } else {
