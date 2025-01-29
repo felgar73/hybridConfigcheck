@@ -65,6 +65,9 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Replaced MSO commands with MS Graph for Entra ID/OAuth data collection
     **Dec 2024**
     --Moved EXO-Collection function to avoid creating empty output files if PS connection fails.
+    **Jan 2025**
+    --Added additional Json output files.
+    --Added Test-MigrationServerAvailability cmd
 #>
 
 #Check for 'run as admin':
@@ -86,8 +89,9 @@ if ($execPol -ne 'Unrestricted'){
 #Collection Folder variables:
 $date = Get-Date -UFormat %b-%d-%Y
 $outputDir = 'c:\temp\HybridConfigs' + '_' + $date
-$onPremDir = $outputDir + '\OnPremCollection'
-$cloudDir = $outputDir + '\CloudCollection'
+$onPremDir = $outputDir + '\OnPremises'
+$cloudDir = $outputDir + '\Office365'
+$errorLog = $outputDir + '\ErrorLog.log'
 
 #OnPrem output paths:
 $hybConfigjson = $onPremDir + '\HybridConfig.json'
@@ -123,6 +127,9 @@ $opOrgConfigtxt = $onPremDir + '\OrganizationConfig-OnPrem.txt'
 $partnerAppjson = $onPremDir + '\Get-PartnerApplication.json'
 $skypeIntTxt = $onPremDir + '\SkypeIntegration-Configs.txt'
 $opIOConnjson = $onPremDir + '\Get-IntraOrganizationConnector.json'
+$opOrgReljson =  $onPremDir + '\Get-OrganizationRelationship.json'
+$OpacceptedDomJson = $onPremDir + '\Get-AcceptedDomain.json'
+$allserversJson = $onPremDir + '\Get-AllServers.json'
 
 #Cloud output paths:
 $clIntraOrgtxtpath = $cloudDir + '\Get-IntraOrgConnector_EXO.txt'
@@ -139,17 +146,21 @@ $outbConnpath = $cloudDir + '\Outbound-Connector_EXO.txt'
 $outbConnjson = $cloudDir + '\Get-OutboundConnector.json'
 $migEndpath = $cloudDir + '\Migration-Endpoints_EXO.txt'
 $accDompath = $cloudDir + '\Accepted-Domain_EXO.txt'
+$exoacceptedDomjson = $cloudDir + '\Get-AcceptedDomain.json'
 $remDomEXOPath = $cloudDir + '\RemoteDomains_EXO.txt'
 $exoRemdomjson = $cloudDir + '\Get-RemoteDomain.json'
 $onPremOrgpath = $cloudDir + '\Get-OnPremisesOrganization.txt'
 $clfederatConfpath = $cloudDir + '\Federation-Configs_EXO.txt'
 #$exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
 $exoFedTrustjson = $cloudDir + '\Get-FederationTrust.json'
+$clfedorgIdjson = $cloudDir + '\Get-FederatedOrganizationIdentifier.json'
 $msoSpnpath = $cloudDir + '\AAD-SvcPrincipals-OAuth.txt'
 $exoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-EXO.json'
 $spoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-SPO.json'
 $exoAddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
 $exoAddpoljson = $cloudDir + '\Get-EmailAddressPolicy.json'
+$MigServerTestJson = $cloudDir + '\Test-MigrationServerAvailability_AutoD.json'
+$exoOrgReljson =  $cloudDir + '\Get-OrganizationRelationship.json'
 
 #Hybrid Folder creation/validation:
     if (!(Test-Path $outputDir)){
@@ -271,6 +282,7 @@ Write-Host -ForegroundColor Yellow "Do you wish to collect on-premises data? Y/N
     #Enter Hybrid server names:
     Write-Host -ForegroundColor Yellow "Enter your Hybrid server names separated by commas (Ex: server1,server2):"
     $script:hybsvrs = (Read-Host).split(",") | foreach {$_.trim()}
+    $hybsvrs | ConvertTo-Json | Out-File $allserversJson
 
     #Check/Create output folder:
     OnPremDir-Create
@@ -352,6 +364,7 @@ function OnPrem-Collection {
     Add-Content $opsharPath -Value "===Org Relationship Details===:"
     $orgRel = Get-OrganizationRelationship 
     $orgRel |FL | Out-File -Append $opsharPath
+    $orgRel | ConvertTo-Json | Out-File $opOrgReljson
     Start-Sleep -Seconds 2
 
     #Federation Config Info:
@@ -359,6 +372,7 @@ function OnPrem-Collection {
     $fedinfotext | Out-File $opfederatConfpath
     $fedIdent = Get-FederatedOrganizationIdentifier -IncludeExtendedDomainInfo: $false
     $fedIdent | FL | Out-File -Append $opfederatConfpath
+    $fedIdent | ConvertTo-Json | Out-File $opfedorgIdjson
     Add-Content $opfederatConfpath -Value "===Federation Information===:"
     $fedInfo = Get-FederationInformation -DomainName $domain -ErrorAction SilentlyContinue
     $fedInfo |FL | Out-File -Append $opfederatConfpath
@@ -388,6 +402,8 @@ function OnPrem-Collection {
     #$recvConn | Export-Clixml $recConnxmlPath
     $recvConn | ConvertTo-Json | Out-File $recConnjson
     $recvConn |FL | Out-File -Append $recConnTxtPath
+    $accDomain = Get-AcceptedDomain
+    $accDomain | ConvertTo-Json | Out-File $OpacceptedDomJson
     #Remote Domains:
     $remText = "===Remote Domains===:"
     $remText | Out-File $opRemDomtxt
@@ -506,6 +522,36 @@ function Remote-EXOPS {
         EXO-Collection
     }
 }
+function Test-MigrationEndPtQ {
+    Write-Host -ForegroundColor Yellow "Do you wish to test connectivity to your on-prem the migration endpoint? Y/N:"
+    $ans = Read-Host
+      if ((!$ans) -or ($ans -eq 'y') -or ($ans -eq 'yes')){
+          $ans = 'yes'
+          MigEndpoint-Test
+      } else {
+          $ans = 'no'
+          Write-Host -ForegroundColor Cyan "Skipping migration endpoint test..."
+      }
+}
+#Migration Server Test:
+function MigEndpoint-Test {
+    if ($null -eq $opCreds){
+        Write-Host -ForegroundColor Yellow "Enter your on-premises Exchange admin credentials:"
+        $opCreds = Get-Credential
+    }    
+    Write-Host -ForegroundColor Yellow "Enter the email address of an on-premises mailbox to test migration server availability:"
+    $opMbx = Read-Host
+    try {
+       $migsvctest = Test-MigrationServerAvailability -ExchangeRemoteMove -Autodiscover -EmailAddress $opMbx -Credentials $opCreds
+       $migsvctest | ConvertTo-Json | Out-File $MigServerTestJson
+    }
+    catch {
+        $errorMsg = "Test command failed, please run 'Test-MigrationServerAvailability' manually if needed..."
+        Write-Error -Message $errorMsg
+        $errorMsg | Out-File $errorLog
+    } 
+}
+
 #Service Principal Collection for OAuth:
 function AAD-Collection {
 Write-Host -ForegroundColor Cyan "Connecting to Entra ID..."
@@ -544,15 +590,18 @@ $shpol = "===Sharing Policy Details===:"
 $shpol | Out-File $clSharingPath
 $sharePol = Get-SharingPolicy 
 $sharePol |FL | Out-File -Append $clSharingPath
+$sharePol | ConvertTo-Json | Out-File $exosharingpoljson
 Add-Content $clSharingPath -Value "===Org Relationship Details===:"
 $orgRel = Get-OrganizationRelationship 
 $orgRel |FL | Out-File -Append $clSharingPath
+$orgRel | ConvertTo-Json | Out-File $exoOrgReljson
 
 #Fed Org Info:
 $fedoiText = "===Federated Organization Information==="
 $fedoiText | Out-File $clfederatConfpath
 $fedOI = Get-FederatedOrganizationIdentifier
 $fedOI | FL | Out-File -Append $clfederatConfpath
+$fedOI | ConvertTo-Json | Out-File $clfedorgIdjson
 Start-Sleep -Seconds 2
 $fedtrusttext = "===Federation Trust Info===:"
 $fedtrusttext | Out-File -Append $clfederatConfpath
@@ -609,6 +658,7 @@ $accDtext = "===Accepted Domain===:"
 $accDtext | Out-File $accDompath
 $accDomain = Get-AcceptedDomain $domain
 $accDomain | FL | Out-File -Append $accDompath
+$accDomain | ConvertTo-Json | Out-File $exoacceptedDomjson
 
 $remDexotext = '===EXO Remote Domains==='
 $remDexotext | Out-File $remDomEXOPath
@@ -620,6 +670,9 @@ $addpoltext = "===EXO Email Address Policies===:"
 $addpoltext | Out-File $ExOaddpoltxt
 $addpolexo = Get-EmailAddressPolicy
 $addpolexo | FL | Out-File -Append $ExOaddpoltxt
+
+#Test Migration Endpoint:
+Test-MigrationEndPtQ
 
 Write-Host -ForegroundColor White "Closing connection to Exchange Online..."
 Get-PSSession | Remove-PSSession
