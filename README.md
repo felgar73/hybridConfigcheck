@@ -69,3 +69,7 @@ If you wish to save previous output, make sure to rename output folders before r
 
  **Dec 2024**
  - Moved EXO-Collection function to avoid creating empty output files if PS connection fails.
+   
+**Jan 2025**
+- Added additional Json output files.
+- Added Test-MigrationServerAvailability function for on-prem migration endpoint testing.
