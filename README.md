@@ -73,3 +73,11 @@ If you wish to save previous output, make sure to rename output folders before r
 **Jan 2025**
 - Added additional Json output files.
 - Added Test-MigrationServerAvailability function for on-prem migration endpoint testing.
+
+**Aug 2025**
+- Modified MS Graph import to avoid application module error.
+- Added XML output for EXO first-party app details.
+- Added output for Exchange Hybrid Application details.
+- 
+**Oct 2025**
+- Removed MS Graph import command due to it hanging.
