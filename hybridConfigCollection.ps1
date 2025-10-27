@@ -68,6 +68,12 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     **Jan 2025**
     --Added additional Json output files.
     --Added Test-MigrationServerAvailability cmd
+    **Aug 2025**
+    --Modified MS Graph import to avoid application module error.
+    --Added XML output for EXO first-party app details.
+    --Added output for Exchange Hybrid Application details.
+    **Oct 2025**
+    --Removed MS Graph import command due to it hanging.
 #>
 
 #Check for 'run as admin':
@@ -154,9 +160,12 @@ $clfederatConfpath = $cloudDir + '\Federation-Configs_EXO.txt'
 #$exofederatConfxml = $cloudDir + '\Federation-Trust_EXO.xml'
 $exoFedTrustjson = $cloudDir + '\Get-FederationTrust.json'
 $clfedorgIdjson = $cloudDir + '\Get-FederatedOrganizationIdentifier.json'
-$msoSpnpath = $cloudDir + '\AAD-SvcPrincipals-OAuth.txt'
+$EntraSpnpath = $cloudDir + '\Entra-SvcPrincipals-OAuth.txt'
 $exoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-EXO.json'
+$exoSvcPrincxml = $cloudDir + '\Get-MgServicePrincipal-EXO.xml'
 $spoSvcPrincjson = $cloudDir + '\Get-MgServicePrincipal-SPO.json'
+$hybridAppjson = $cloudDir + '\Get-MgServicePrincipal-HybridApp.json'
+$hybridAppxml = $cloudDir + '\Get-MgServicePrincipal-HybridApp.xml'
 $exoAddpoltxt = $cloudDir + '\EmailAddressPolicies_EXO.txt'
 $exoAddpoljson = $cloudDir + '\Get-EmailAddressPolicy.json'
 $MigServerTestJson = $cloudDir + '\Test-MigrationServerAvailability_AutoD.json'
@@ -282,7 +291,7 @@ Write-Host -ForegroundColor Yellow "Do you wish to collect on-premises data? Y/N
     #Enter Hybrid server names:
     Write-Host -ForegroundColor Yellow "Enter your Hybrid server names separated by commas (Ex: server1,server2):"
     $script:hybsvrs = (Read-Host).split(",") | foreach {$_.trim()}
-    $hybsvrs | ConvertTo-Json | Out-File $allserversJson
+    #$hybsvrs | ConvertTo-Json | Out-File $allserversJson
 
     #Check/Create output folder:
     OnPremDir-Create
@@ -342,6 +351,7 @@ function OnPrem-Collection {
     $hybtext = "===Hybrid Servers Entered===:"
     $hybtext | Out-File $hybtxtPath
     $hybsvrs | Out-File -Append $hybtxtPath
+    $hybsvrs | ConvertTo-Json | Out-File $allserversJson
     Add-Content $hybtxtPath -Value "===Hybrid Configuration===:"
     $hybConf = Get-HybridConfiguration
     $hybConf | FL | Out-File -Append $hybtxtPath
@@ -557,8 +567,7 @@ function AAD-Collection {
 Write-Host -ForegroundColor Cyan "Connecting to Entra ID..."
     try {
         #Install-Module Microsoft.Graph -Scope CurrentUser (if not installed, this will install the MS Graph module)
-        Import-Module Microsoft.Graph.Applications
-        Connect-MgGraph -Scopes "Application.Read.All"
+        Connect-MgGraph -Scopes "Application.Read.All" -NoWelcome
     }
     catch {
         $GraphFail = "Connection to Entra ID Failed. Ensure MgGraph Powershell Module is installed and run the cmdlet below manually to collect OAuth service principal info:"
@@ -570,16 +579,24 @@ Write-Host -ForegroundColor Cyan "Connecting to Entra ID..."
         Write-Host -ForegroundColor Cyan "Refer to: https://learn.microsoft.com/en-us/powershell/microsoftgraph/installation?view=graph-powershell-1.0 for additional details on MS Graph module."
     } else {
         $svcPrinText = "=== Entra ID Service Principals for OAuth ==="
-        $svcPrinText | Out-File -Append $msoSpnpath
+        $svcPrinText | Out-File -Append $EntraSpnpath
         $exoSvcId = '00000002-0000-0ff1-ce00-000000000000'
         $skypeSvcId = '00000004-0000-0ff1-ce00-000000000000'
         $exosvcPrinc = Get-MgServicePrincipal -Filter "AppId eq '$exoSvcid'"
         $skypsvcPrinc = Get-MgServicePrincipal -Filter "AppId eq '$skypeSvcid'"
+        $hybridapp = Get-MgServicePrincipal -Filter "startsWith(DisplayName, 'ExchangeServerApp')"
         $exosvcPrinc | ConvertTo-Json | Out-File $exoSvcPrincjson
+        $exosvcPrinc | Export-Clixml $exoSvcPrincxml
         $skypsvcPrinc | ConvertTo-Json | Out-File $spoSvcPrincjson
-        $exosvcPrinc | FL AppDisplayName,ObjectType,AccountEnabled,AppId | Out-File -Append $msoSpnpath
-        #Add-Content $msoSpnpath -Value "Registered 'ServicePrincipalNames':"
-        $exosvcPrinc | select -ExpandProperty ServicePrincipalNames | Out-File -Append $msoSpnpath
+        $exosvcPrinc | FL AppDisplayName,ObjectType,AccountEnabled,AppId | Out-File -Append $EntraSpnpath
+
+        Add-Content $EntraSpnpath -Value "Registered 'ServicePrincipalNames':"
+        Add-Content $EntraSpnpath -Value ""
+        $exosvcPrinc | Select -ExpandProperty ServicePrincipalNames | Out-File -Append $EntraSpnpath
+        Add-Content $EntraSpnpath -Value ""
+
+        Add-Content $EntraSpnpath -Value "===Hybrid Application Info===:"
+        $hybridapp | FL DisplayName,Appid,Description,Notes | Out-File -Append $EntraSpnpath
     }
 }
 
