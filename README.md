@@ -78,6 +78,10 @@ If you wish to save previous output, make sure to rename output folders before r
 - Modified MS Graph import to avoid application module error.
 - Added XML output for EXO first-party app details.
 - Added output for Exchange Hybrid Application details.
-- 
+  
 **Oct 2025**
 - Removed MS Graph import command due to it hanging.
+
+**March 2026**
+- Added prompt for providing desired directory for output folders.
+- Added additional Hybrid app details for Get-AuthServer output on-prem.
