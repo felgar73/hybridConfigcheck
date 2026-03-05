@@ -74,6 +74,9 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMA
     --Added output for Exchange Hybrid Application details.
     **Oct 2025**
     --Removed MS Graph import command due to it hanging.
+    **March 2026**
+    --Added prompt for providing desired directory for output folders.
+    --Added additional Hybrid app details for Get-AuthServer output on-prem.
 #>
 
 #Check for 'run as admin':
@@ -92,9 +95,13 @@ if ($execPol -ne 'Unrestricted'){
     Set-ExecutionPolicy Unrestricted -Force
 }else {Write-Host -ForegroundColor Cyan "Execution policy is already '$execPol', continuing..."}
 
+#Prompt for Collection Folder location:
+Write-Host -ForegroundColor Yellow "Enter a root location for the collection folder (Ex: c:\temp); no trailing backslash:"
+$rootFolder = Read-Host 
+
 #Collection Folder variables:
 $date = Get-Date -UFormat %b-%d-%Y
-$outputDir = 'c:\temp\HybridConfigs' + '_' + $date
+$outputDir = $rootFolder + '\HybridConfigs' + '_' + $date
 $onPremDir = $outputDir + '\OnPremises'
 $cloudDir = $outputDir + '\Office365'
 $errorLog = $outputDir + '\ErrorLog.log'
@@ -171,8 +178,8 @@ $exoAddpoljson = $cloudDir + '\Get-EmailAddressPolicy.json'
 $MigServerTestJson = $cloudDir + '\Test-MigrationServerAvailability_AutoD.json'
 $exoOrgReljson =  $cloudDir + '\Get-OrganizationRelationship.json'
 
-#Hybrid Folder creation/validation:
-    if (!(Test-Path $outputDir)){
+#Create Collection Folder:
+if (!(Test-Path $outputDir)){
     New-Item -itemtype Directory -Path $outputDir
     }
 
@@ -455,7 +462,7 @@ function OnPrem-Collection {
     Add-Content $opOauthPath -Value "===Auth Server Settings===:"
     $authsvr = Get-AuthServer
     $authsvr | ConvertTo-Json | Out-File $authSvrjson
-    $authsvr | FL Name,type,realm,enabled,TokenIssuingEndpoint,AuthorizationEndpoint,IsDefaultAuthorizationEndpoint | Out-File -Append $opOauthPath
+    $authsvr | FL Name,type,realm,enabled,Domainname,ApplicationIdentifier,TokenIssuingEndpoint,AuthorizationEndpoint,IsDefaultAuthorizationEndpoint | Out-File -Append $opOauthPath
     Add-Content $OPoauthPath -Value "**Additional Auth Server details found in Json file."
     #$authsvr | Export-Clixml $authsvrxmlPath
     $authConftext = "===On-Premises Auth Config===:"
